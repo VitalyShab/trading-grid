@@ -12,7 +12,6 @@ import com.vitalys.trading_grid.repository.OrderRepository;
 import com.vitalys.trading_grid.repository.TradingPairRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -25,9 +24,8 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 public class StrategyEngine {
-
-    // Each grid level steps 1 % below the previous level price
     private static final BigDecimal STEP_FRACTION = new BigDecimal("0.01");
+    private static final BigDecimal STEP_GROWTH_FACTOR = new BigDecimal("1.25");
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final int QTY_SCALE = 8;
     private static final int PRICE_SCALE = 8;
@@ -41,21 +39,25 @@ public class StrategyEngine {
         tradingPairRepository.findAllByActiveTrue()
                 .forEach(pair -> {
                     try {
-                        MarketGateway gateway = gateways.get(pair.getGateway());
-                        if (gateway == null) {
-                            log.error("No MarketGateway bean registered for key '{}' (pair={})",
-                                    pair.getGateway(), pair.getSymbol());
-                            return;
-                        }
-
-                        syncFilledOrders(pair, gateway);
-                        placeGridOrders(pair, gateway);
-
-                        tradingPairRepository.save(pair);
+                        execute(pair);
                     } catch (Exception e) {
                         log.error("Strategy tick failed for {}: {}", pair.getSymbol(), e.getMessage(), e);
                     }
                 });
+    }
+
+    private void execute(TradingPair pair) {
+        MarketGateway gateway = gateways.get(pair.getGateway());
+        if (gateway == null) {
+            log.error("No MarketGateway bean registered for key '{}' (pair={})",
+                    pair.getGateway(), pair.getSymbol());
+            return;
+        }
+
+        syncFilledOrders(pair, gateway);
+        placeGridOrders(pair, gateway);
+
+        tradingPairRepository.save(pair);
     }
 
     private void syncFilledOrders(TradingPair tradingPair, MarketGateway gateway) {
@@ -174,6 +176,7 @@ public class StrategyEngine {
 
         orderService.handleStuckOrders(tradingPair);
 
+        BigDecimal currentStep = STEP_FRACTION;
         for (int i = 1; i <= tradingPair.getOrderCount(); i++) {
             if (tradingPair.getWallet().compareTo(tradingPair.getSpendPerOrder()) < 0) {
                 log.info("Not available fonds wallet={} for {}", tradingPair.getWallet(), tradingPair.getSymbol());
@@ -181,9 +184,11 @@ public class StrategyEngine {
             }
 
             BigDecimal levelPrice = currentPrice.multiply(
-                    BigDecimal.ONE.subtract(STEP_FRACTION.multiply(BigDecimal.valueOf(i))),
+                    BigDecimal.ONE.subtract(currentStep),
                     MathContext.DECIMAL128
             ).setScale(QTY_SCALE, RoundingMode.HALF_UP);
+
+            currentStep = currentStep.multiply(STEP_GROWTH_FACTOR, MathContext.DECIMAL128);
 
             BigDecimal qty = tradingPair.getSpendPerOrder()
                     .divide(levelPrice, QTY_SCALE, RoundingMode.HALF_UP);
