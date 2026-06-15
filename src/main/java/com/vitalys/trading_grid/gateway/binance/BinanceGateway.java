@@ -39,6 +39,9 @@ public class BinanceGateway implements MarketGateway {
 
     private static final String HMAC_SHA256_ALGORITHM = "HmacSHA256";
 
+    // Binance returns at most 1000 klines per request.
+    private static final int MAX_KLINES_PER_REQUEST = 1000;
+
     // Binance kline array field indices — documented at:
     // https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
     private static final int KLINE_OPEN_TIME    = 0;
@@ -81,6 +84,57 @@ public class BinanceGateway implements MarketGateway {
                 .body(JsonNode.class);
 
         return parseKlines(rawKlines);
+    }
+
+    /**
+     * Fetch a contiguous range of historical klines, paginating through
+     * {@code /api/v3/klines} until {@code endTime} is reached.
+     *
+     * <p>Binance caps each response at {@value #MAX_KLINES_PER_REQUEST} klines, so for
+     * ranges that span more candles than that we repeatedly call the endpoint, advancing
+     * {@code startTime} to one millisecond past the close time of the last candle returned
+     * in the previous page. This avoids duplicate or skipped candles at page boundaries.
+     *
+     * <p>The loop terminates when a page returns fewer than {@value #MAX_KLINES_PER_REQUEST}
+     * candles (i.e. we have reached the end of the available data) or when the next
+     * {@code startTime} would be at or past {@code endTime}.
+     *
+     * @param symbol    market pair, e.g. {@code "BTCUSDT"}
+     * @param interval  kline interval, e.g. {@code "1h"}
+     * @param startTime inclusive start of the range
+     * @param endTime   inclusive end of the range
+     * @return ordered list of candles, oldest first, covering the requested range
+     */
+    public List<Candle> getHistoricalKlines(String symbol, String interval, Instant startTime, Instant endTime) {
+        log.debug("Fetching historical klines for {} @ interval={} from {} to {}",
+                symbol, interval, startTime, endTime);
+
+        var allCandles = new ArrayList<Candle>();
+        long cursorMillis = startTime.toEpochMilli();
+        long endMillis = endTime.toEpochMilli();
+
+        while (cursorMillis < endMillis) {
+            var rawKlines = restClient.get()
+                    .uri("/api/v3/klines?symbol={symbol}&interval={interval}&startTime={startTime}&endTime={endTime}&limit={limit}",
+                            symbol, interval, cursorMillis, endMillis, MAX_KLINES_PER_REQUEST)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            List<Candle> page = parseKlines(rawKlines);
+            if (page.isEmpty()) {
+                break;
+            }
+
+            allCandles.addAll(page);
+            cursorMillis = page.getLast().getCloseTime().toEpochMilli() + 1;
+
+            if (page.size() < MAX_KLINES_PER_REQUEST) {
+                break;
+            }
+        }
+
+        log.debug("Fetched {} historical candles for {} @ interval={}", allCandles.size(), symbol, interval);
+        return allCandles;
     }
 
     /**
