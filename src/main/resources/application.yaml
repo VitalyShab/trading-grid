@@ -29,3 +29,10 @@ spring:
         base-url: https://api.binance.com
         api-key: YOUR_BINANCE_API_KEY
         api-secret: YOUR_BINANCE_API_SECRET
+
+trading-grid:
+  historical-data:
+    download:
+      page-size: 1000
+      throttle-ms: 250
+      storage-dir: historical-data
