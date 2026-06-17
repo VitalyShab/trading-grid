@@ -8,6 +8,7 @@ import com.vitalys.trading_grid.model.OrderStatus;
 import com.vitalys.trading_grid.model.OrderType;
 import com.vitalys.trading_grid.model.TradingPair;
 import com.vitalys.trading_grid.repository.OrderRepository;
+import com.vitalys.trading_grid.repository.TradingPairRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
@@ -23,6 +24,7 @@ import java.util.List;
 public class OrderService {
 
     private final OrderRepository orderRepository;
+    private final TradingPairRepository tradingPairRepository;
 
     @Transactional
     public Order createOrder(Order order) {
@@ -100,6 +102,7 @@ public class OrderService {
             ));
             log.info("Closed open buy order id={} tradingPairId={}", openOrder.getId(), tradingPairId);
         }
+        tradingPairRepository.save(tradingPair);
     }
 
     @Transactional

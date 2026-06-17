@@ -17,4 +17,6 @@ public interface TradingPairRepository extends JpaRepository<TradingPair, Long> 
     List<TradingPair> findByGateway(String gateway);
 
     Iterable<TradingPair> findAllByActiveTrue();
+
+    List<TradingPair> findAllByActiveTrueAndGatewayNot(String gateway);
 }

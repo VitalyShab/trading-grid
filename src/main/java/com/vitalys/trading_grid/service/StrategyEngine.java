@@ -13,6 +13,7 @@ import com.vitalys.trading_grid.repository.TradingPairRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
@@ -36,7 +37,7 @@ public class StrategyEngine {
     private final Map<String, MarketGateway> gateways;
 
     public void startStrategy() {
-        tradingPairRepository.findAllByActiveTrue()
+        tradingPairRepository.findAllByActiveTrueAndGatewayNot("backtest")
                 .forEach(pair -> {
                     try {
                         execute(pair);
@@ -46,7 +47,8 @@ public class StrategyEngine {
                 });
     }
 
-    private void execute(TradingPair pair) {
+    @Transactional
+    public void execute(TradingPair pair) {
         MarketGateway gateway = gateways.get(pair.getGateway());
         if (gateway == null) {
             log.error("No MarketGateway bean registered for key '{}' (pair={})",
@@ -94,8 +96,6 @@ public class StrategyEngine {
         }
 
         BigDecimal currentPrice = fetchCurrentPrice(gateway, tradingPair.getSymbol());
-        log.info("Placing {} grid orders for {} at base price {}", tradingPair.getOrderCount(),
-                tradingPair.getSymbol(), currentPrice);
 
         placeBuyOrders(tradingPair, currentPrice, gateway);
         placeSellOrder(tradingPair, gateway);
@@ -125,6 +125,13 @@ public class StrategyEngine {
         BigDecimal sellPrice = middlePrice
                 .multiply(multiplier, MathContext.DECIMAL128)
                 .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
+
+        List<Order> currentSellOrders = orderRepository.findByTradingPairIdAndStatusAndType(
+                tradingPair.getId(), OrderStatus.OPEN, OrderType.SELL);
+
+        if (!currentSellOrders.isEmpty() && currentSellOrders.getLast().getPrice().compareTo(sellPrice) == 0) {
+            return;
+        }
 
         BigDecimal totalQty = filledBuyOrders.stream()
                 .map(Order::getQty)
@@ -174,6 +181,9 @@ public class StrategyEngine {
             return;
         }
 
+        log.info("Placing {} grid orders for {} at base price {}", tradingPair.getOrderCount(),
+                tradingPair.getSymbol(), currentPrice);
+
         orderService.handleStuckOrders(tradingPair);
 
         BigDecimal currentStep = STEP_FRACTION;
@@ -201,6 +211,12 @@ public class StrategyEngine {
     }
 
     private void rebuildBuyOrdersCheck(TradingPair tradingPair, BigDecimal currentPrice, MarketGateway gateway) {
+        List<Order> filledBuyOrders = orderRepository.findByTradingPairIdAndStatusAndType(
+                tradingPair.getId(), OrderStatus.FILL, OrderType.BUY);
+        if (!filledBuyOrders.isEmpty()) {
+            return;
+        }
+
         BigDecimal profitPercent = tradingPair.getProfitPercent();
         if (profitPercent == null) {
             return;
@@ -225,7 +241,7 @@ public class StrategyEngine {
                 .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
 
         if (currentPrice.compareTo(triggerPrice) > 0) {
-            log.info("Price {} exceeds trigger {} (highest buy={}, profitPercent={}) for {} — closing all open buy orders",
+            log.info("Price {} exceeds trigger {} (highest buy={}, profitPercent={}) for {} — no filled buy orders, closing all open buy orders",
                     currentPrice, triggerPrice, highestBuyPrice, profitPercent, tradingPair.getSymbol());
             orderService.cancelAllOpenBuyOrders(gateway, tradingPair);
         }
