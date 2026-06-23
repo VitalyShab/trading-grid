@@ -96,10 +96,6 @@ public class BacktestMarketGateway implements MarketGateway {
         return cursorIndex >= 0 && cursorIndex < series.size();
     }
 
-    // -------------------------------------------------------------------------
-    // MarketGateway implementation
-    // -------------------------------------------------------------------------
-
     /**
      * Returns the last {@code limit} candles up to and including the cursor. The {@code symbol}
      * and {@code interval} parameters are accepted for interface compatibility but are not used
@@ -155,44 +151,10 @@ public class BacktestMarketGateway implements MarketGateway {
         }
     }
 
-    /**
-     * Returns {@code true} if the given exchange order id is still tracked as open by this
-     * simulated gateway. {@code StrategyEngine} discovers fills through
-     * {@code getCandles}/price comparisons against {@code Order} entities in the database, not
-     * through this method directly — this is exposed for completeness and testing.
-     */
-    public boolean isOrderOpen(String orderId) {
-        return openOrders.containsKey(orderId);
-    }
-
-    /**
-     * Returns {@code true} if a limit order of the given {@code type} at {@code orderPrice}
-     * would have been filled by the candle the cursor is currently positioned on.
-     *
-     * <p>A BUY fills if the candle's low reached or went below {@code orderPrice}; a SELL
-     * fills if the candle's high reached or exceeded {@code orderPrice}. This mirrors the
-     * direction of the comparisons in
-     * {@link com.vitalys.trading_grid.service.StrategyEngine#syncFilledOrders}, but evaluated
-     * against the full candle range rather than only its close price.
-     */
-    public boolean wouldFill(com.vitalys.trading_grid.model.OrderType type, BigDecimal orderPrice) {
-        Candle candle = currentCandle();
-        return switch (type) {
-            case BUY -> candle.getLow().compareTo(orderPrice) <= 0;
-            case SELL -> candle.getHigh().compareTo(orderPrice) >= 0;
-        };
-    }
-
     private Instant currentCandleTime() {
         return hasCurrentCandle() ? series.get(cursorIndex).getCloseTime() : Instant.EPOCH;
     }
 
-    /**
-     * Tracks a simulated order that has been placed but not yet cancelled.
-     * Fill detection itself is performed by {@code StrategyEngine.syncFilledOrders}, which
-     * compares {@code Order} entity prices against {@link #getCandles} results — this record
-     * exists purely so {@link #cancelOrder} has something to remove.
-     */
     private record OpenSimulatedOrder(String orderId, PlaceOrderRequest request) {
     }
 }

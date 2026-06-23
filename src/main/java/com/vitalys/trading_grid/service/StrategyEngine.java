@@ -25,6 +25,7 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 public class StrategyEngine {
+    private static final BigDecimal SPEND_INCREASE = new BigDecimal("1.05");
     private static final BigDecimal STEP_FRACTION = new BigDecimal("0.01");
     private static final BigDecimal STEP_GROWTH_FACTOR = new BigDecimal("1.25");
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
@@ -84,6 +85,8 @@ public class StrategyEngine {
                 }
             }
         }
+
+        placeSellOrder(tradingPair, gateway);
     }
 
     private void placeGridOrders(TradingPair tradingPair, MarketGateway gateway) {
@@ -98,7 +101,6 @@ public class StrategyEngine {
         BigDecimal currentPrice = fetchCurrentPrice(gateway, tradingPair.getSymbol());
 
         placeBuyOrders(tradingPair, currentPrice, gateway);
-        placeSellOrder(tradingPair, gateway);
     }
 
     private void placeSellOrder(TradingPair tradingPair, MarketGateway gateway) {
@@ -114,29 +116,25 @@ public class StrategyEngine {
             return;
         }
 
-        BigDecimal priceSum = filledBuyOrders.stream()
-                .map(Order::getPrice)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal middlePrice = priceSum
-                .divide(BigDecimal.valueOf(filledBuyOrders.size()), PRICE_SCALE, RoundingMode.HALF_UP);
-
-        BigDecimal multiplier = BigDecimal.ONE.add(
-                tradingPair.getProfitPercent().divide(ONE_HUNDRED, PRICE_SCALE, RoundingMode.HALF_UP));
-        BigDecimal sellPrice = middlePrice
-                .multiply(multiplier, MathContext.DECIMAL128)
-                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-
         List<Order> currentSellOrders = orderRepository.findByTradingPairIdAndStatusAndType(
                 tradingPair.getId(), OrderStatus.OPEN, OrderType.SELL);
-
-        if (!currentSellOrders.isEmpty() && currentSellOrders.getLast().getPrice().compareTo(sellPrice) == 0) {
-            return;
-        }
 
         BigDecimal totalQty = filledBuyOrders.stream()
                 .map(Order::getQty)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(QTY_SCALE, RoundingMode.HALF_UP);
+        BigDecimal totalSpent = filledBuyOrders.stream()
+                .map((order) -> order.getPrice().multiply(order.getQty()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(QTY_SCALE, RoundingMode.HALF_UP);
+
+        BigDecimal sellPrice = totalSpent.divide(totalQty, QTY_SCALE, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.ONE.add(tradingPair.getProfitPercent().divide(ONE_HUNDRED, QTY_SCALE, RoundingMode.HALF_UP)))
+                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
+
+        if (!currentSellOrders.isEmpty() && currentSellOrders.getLast().getPrice().compareTo(sellPrice) == 0) {
+            return;
+        }
 
         cancelPreviousSellOrders(tradingPair, gateway);
 
@@ -172,23 +170,23 @@ public class StrategyEngine {
 
     private void placeBuyOrders(TradingPair tradingPair, BigDecimal currentPrice, MarketGateway gateway) {
         rebuildBuyOrdersCheck(tradingPair, currentPrice, gateway);
-        List<Order> openBuyOrders = orderRepository.findByTradingPairIdAndStatusAndType(
-                tradingPair.getId(), OrderStatus.OPEN, OrderType.BUY);
 
-        if (!openBuyOrders.isEmpty()) {
-            log.debug("No new buy orders needed for {} — openBuyOrders={} orderCount={}",
-                    tradingPair.getSymbol(), openBuyOrders.size(), tradingPair.getOrderCount());
+        if (orderService.isNotCompletedBuyOrdersExist(tradingPair)) {
+            log.debug("No new buy orders needed for {} — orderCount={}",
+                    tradingPair.getSymbol(), tradingPair.getOrderCount());
             return;
         }
 
         log.info("Placing {} grid orders for {} at base price {}", tradingPair.getOrderCount(),
                 tradingPair.getSymbol(), currentPrice);
 
-        orderService.handleStuckOrders(tradingPair);
+        //orderService.handleStuckOrders(tradingPair);
 
         BigDecimal currentStep = STEP_FRACTION;
+        BigDecimal currentSpend = tradingPair.getWallet().multiply(SPEND_INCREASE.subtract(BigDecimal.ONE))
+                        .divide(SPEND_INCREASE.pow(tradingPair.getOrderCount()).subtract(BigDecimal.ONE), QTY_SCALE, RoundingMode.HALF_DOWN);
         for (int i = 1; i <= tradingPair.getOrderCount(); i++) {
-            if (tradingPair.getWallet().compareTo(tradingPair.getSpendPerOrder()) < 0) {
+            if (tradingPair.getWallet().compareTo(currentSpend) < 0) {
                 log.info("Not available fonds wallet={} for {}", tradingPair.getWallet(), tradingPair.getSymbol());
                 break;
             }
@@ -200,10 +198,11 @@ public class StrategyEngine {
 
             currentStep = currentStep.multiply(STEP_GROWTH_FACTOR, MathContext.DECIMAL128);
 
-            BigDecimal qty = tradingPair.getSpendPerOrder()
-                    .divide(levelPrice, QTY_SCALE, RoundingMode.HALF_UP);
+            BigDecimal qty = currentSpend.divide(levelPrice, QTY_SCALE, RoundingMode.HALF_UP);
 
             OrderResponse response = orderService.placeBuyOrder(tradingPair, gateway, levelPrice, qty);
+
+            currentSpend = currentSpend.multiply(SPEND_INCREASE);
 
             log.debug("Placed buy order level={} price={} qty={} marketOrderId={}",
                     i, levelPrice, qty, response.getOrderId());

@@ -1,6 +1,5 @@
 package com.vitalys.trading_grid.controller;
 
-import com.vitalys.trading_grid.dto.HistoricalDataDownloadResponse;
 import com.vitalys.trading_grid.service.HistoricalDataService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,13 +21,13 @@ public class HistoricalDataController {
     private final HistoricalDataService historicalDataService;
 
     @PostMapping("/{symbol}/download")
-    public ResponseEntity<HistoricalDataDownloadResponse> downloadLastYear(
+    public ResponseEntity<Void> downloadLastYear(
             @PathVariable String symbol,
             @RequestParam(defaultValue = DEFAULT_INTERVAL) String interval) {
         log.info("POST /historical-data/{}/download received: interval={}", symbol, interval);
 
-        int savedCount = historicalDataService.downloadLastYear(symbol, interval);
+        historicalDataService.downloadLastYearAsync(symbol, interval);
 
-        return ResponseEntity.ok(new HistoricalDataDownloadResponse(symbol, interval, savedCount));
+        return ResponseEntity.accepted().build();
     }
 }

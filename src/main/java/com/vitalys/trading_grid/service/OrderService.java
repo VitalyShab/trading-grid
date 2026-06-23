@@ -126,7 +126,7 @@ public class OrderService {
                 .status(OrderStatus.OPEN)
                 .build());
 
-        tradingPair.setWallet(tradingPair.getWallet().subtract(tradingPair.getSpendPerOrder()));
+        tradingPair.setWallet(tradingPair.getWallet().subtract(levelPrice.multiply(qty)));
 
         return response;
     }
@@ -144,5 +144,12 @@ public class OrderService {
                 orderRepository.save(fillBuyOrder);
             }
         }
+    }
+
+    public boolean isNotCompletedBuyOrdersExist(TradingPair tradingPair) {
+        List<Order> openBuyOrders = orderRepository.findByTradingPairIdAndTypeAndStatusIn(
+                tradingPair.getId(), OrderType.BUY, List.of(OrderStatus.OPEN, OrderStatus.FILL));
+
+        return !openBuyOrders.isEmpty();
     }
 }

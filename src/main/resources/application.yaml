@@ -30,6 +30,20 @@ spring:
         api-key: YOUR_BINANCE_API_KEY
         api-secret: YOUR_BINANCE_API_SECRET
 
+logging:
+  file:
+    name: logs/trading-grid.log
+  logback:
+    rollingpolicy:
+      file-name-pattern: logs/trading-grid.%d{yyyy-MM-dd}.%i.log.gz
+      max-file-size: 10MB
+      max-history: 30
+      total-size-cap: 1GB
+      clean-history-on-start: false
+  level:
+    root: INFO
+    com.vitalys.trading_grid: DEBUG
+
 trading-grid:
   historical-data:
     download:

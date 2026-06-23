@@ -10,6 +10,7 @@ import com.vitalys.trading_grid.gateway.dto.Candle;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -36,6 +37,15 @@ public class HistoricalDataService {
 
     private final BinanceGateway binanceGateway;
     private final HistoricalDataProperties historicalDataProperties;
+
+    @Async
+    public void downloadLastYearAsync(String symbol, String interval) {
+        try {
+            downloadLastYear(symbol, interval);
+        } catch (Exception e) {
+            log.error("Async historical download failed for {} @ interval={}: {}", symbol, interval, e.getMessage(), e);
+        }
+    }
 
     public int downloadLastYear(String symbol, String interval) {
         Instant end = Instant.now();

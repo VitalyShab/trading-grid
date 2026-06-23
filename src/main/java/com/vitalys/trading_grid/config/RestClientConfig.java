@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -21,6 +22,7 @@ import org.springframework.web.client.RestClient;
  * <p>The {@code @Qualifier("binanceRestClient")} on the bean name lets Spring
  * inject the right client when multiple RestClient beans coexist.
  */
+@EnableAsync
 @Configuration
 @RequiredArgsConstructor
 @EnableConfigurationProperties(BinanceProperties.class)
