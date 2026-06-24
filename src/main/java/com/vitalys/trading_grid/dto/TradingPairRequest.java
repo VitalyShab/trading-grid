@@ -30,5 +30,9 @@ public record TradingPairRequest(
 
         @DecimalMin(value = "0.01", message = "profitPercent must be at least 0.01")
         @DecimalMax(value = "999.99", message = "profitPercent must not exceed 999.99")
-        BigDecimal profitPercent
+        BigDecimal profitPercent,
+
+        @DecimalMin(value = "0.0", message = "feePercent must be non-negative")
+        @DecimalMax(value = "10.0", message = "feePercent must not exceed 10")
+        BigDecimal feePercent
 ) {}

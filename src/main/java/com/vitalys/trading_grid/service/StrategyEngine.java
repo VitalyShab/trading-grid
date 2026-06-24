@@ -27,7 +27,7 @@ import java.util.Map;
 public class StrategyEngine {
     private static final BigDecimal SPEND_INCREASE = new BigDecimal("1.05");
     private static final BigDecimal STEP_FRACTION = new BigDecimal("0.01");
-    private static final BigDecimal STEP_GROWTH_FACTOR = new BigDecimal("1.25");
+    private static final BigDecimal STEP_GROWTH_FACTOR = new BigDecimal("1.23");
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final int QTY_SCALE = 8;
     private static final int PRICE_SCALE = 8;
@@ -57,15 +57,14 @@ public class StrategyEngine {
             return;
         }
 
-        syncFilledOrders(pair, gateway);
-        placeGridOrders(pair, gateway);
+        var currentPrice = fetchCurrentPrice(gateway, pair.getSymbol());
+        syncFilledOrders(pair, gateway, currentPrice);
+        placeGridOrders(pair, gateway, currentPrice);
 
         tradingPairRepository.save(pair);
     }
 
-    private void syncFilledOrders(TradingPair tradingPair, MarketGateway gateway) {
-        BigDecimal currentPrice = fetchCurrentPrice(gateway, tradingPair.getSymbol());
-
+    private void syncFilledOrders(TradingPair tradingPair, MarketGateway gateway, BigDecimal currentPrice) {
         List<Order> openOrders = orderRepository.findByTradingPairIdAndStatus(
                 tradingPair.getId(), OrderStatus.OPEN);
         for (Order order : openOrders) {
@@ -89,7 +88,7 @@ public class StrategyEngine {
         placeSellOrder(tradingPair, gateway);
     }
 
-    private void placeGridOrders(TradingPair tradingPair, MarketGateway gateway) {
+    private void placeGridOrders(TradingPair tradingPair, MarketGateway gateway, BigDecimal currentPrice) {
         if (tradingPair.getOrderCount() <= 0
                 || tradingPair.getSpendPerOrder() == null
                 || tradingPair.getSpendPerOrder().compareTo(BigDecimal.ZERO) == 0) {
@@ -98,9 +97,7 @@ public class StrategyEngine {
             return;
         }
 
-        BigDecimal currentPrice = fetchCurrentPrice(gateway, tradingPair.getSymbol());
-
-        placeBuyOrders(tradingPair, currentPrice, gateway);
+        placeBuyOrders(tradingPair, gateway, currentPrice);
     }
 
     private void placeSellOrder(TradingPair tradingPair, MarketGateway gateway) {
@@ -128,11 +125,13 @@ public class StrategyEngine {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(QTY_SCALE, RoundingMode.HALF_UP);
 
+        BigDecimal fee = tradingPair.getFeePercent() != null ? tradingPair.getFeePercent() : BigDecimal.ZERO;
+        BigDecimal totalMarkup = tradingPair.getProfitPercent().add(fee.multiply(new BigDecimal("2")));
         BigDecimal sellPrice = totalSpent.divide(totalQty, QTY_SCALE, RoundingMode.HALF_UP)
-                .multiply(BigDecimal.ONE.add(tradingPair.getProfitPercent().divide(ONE_HUNDRED, QTY_SCALE, RoundingMode.HALF_UP)))
+                .multiply(BigDecimal.ONE.add(totalMarkup.divide(ONE_HUNDRED, QTY_SCALE, RoundingMode.HALF_UP)))
                 .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
 
-        if (!currentSellOrders.isEmpty() && currentSellOrders.getLast().getPrice().compareTo(sellPrice) == 0) {
+        if (!currentSellOrders.isEmpty() && currentSellOrders.getFirst().getPrice().compareTo(sellPrice) == 0) {
             return;
         }
 
@@ -168,8 +167,8 @@ public class StrategyEngine {
         }
     }
 
-    private void placeBuyOrders(TradingPair tradingPair, BigDecimal currentPrice, MarketGateway gateway) {
-        rebuildBuyOrdersCheck(tradingPair, currentPrice, gateway);
+    private void placeBuyOrders(TradingPair tradingPair, MarketGateway gateway, BigDecimal currentPrice) {
+        rebuildBuyOrdersCheck(tradingPair, gateway, currentPrice);
 
         if (orderService.isNotCompletedBuyOrdersExist(tradingPair)) {
             log.debug("No new buy orders needed for {} — orderCount={}",
@@ -209,7 +208,7 @@ public class StrategyEngine {
         }
     }
 
-    private void rebuildBuyOrdersCheck(TradingPair tradingPair, BigDecimal currentPrice, MarketGateway gateway) {
+    private void rebuildBuyOrdersCheck(TradingPair tradingPair, MarketGateway gateway, BigDecimal currentPrice) {
         List<Order> filledBuyOrders = orderRepository.findByTradingPairIdAndStatusAndType(
                 tradingPair.getId(), OrderStatus.FILL, OrderType.BUY);
         if (!filledBuyOrders.isEmpty()) {
@@ -232,7 +231,7 @@ public class StrategyEngine {
                 .max(BigDecimal::compareTo)
                 .orElseThrow();
 
-        BigDecimal percent = profitPercent.add(profitPercent.divide(BigDecimal.TWO, RoundingMode.HALF_UP));
+        BigDecimal percent = profitPercent.add(profitPercent.multiply(BigDecimal.TWO));
         BigDecimal multiplier = BigDecimal.ONE.add(
                 percent.divide(ONE_HUNDRED, PRICE_SCALE, RoundingMode.HALF_UP));
         BigDecimal triggerPrice = highestBuyPrice

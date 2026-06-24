@@ -38,6 +38,7 @@ public class TradingPairService {
         existing.setActive(request.active());
         existing.setOrderCount(request.orderCount());
         existing.setSpendPerOrder(request.spendPerOrder());
+        existing.setFeePercent(request.feePercent());
 
         TradingPair saved = tradingPairRepository.save(existing);
         log.info("Trading pair updated: id={} symbol={}", saved.getId(), saved.getSymbol());
@@ -53,6 +54,7 @@ public class TradingPairService {
         tradingPair.setOrderCount(request.orderCount());
         tradingPair.setSpendPerOrder(request.spendPerOrder());
         tradingPair.setProfitPercent(request.profitPercent());
+        tradingPair.setFeePercent(request.feePercent());
         return tradingPair;
     }
 }

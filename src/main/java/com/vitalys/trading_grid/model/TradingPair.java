@@ -45,4 +45,7 @@ public class TradingPair {
 
     @Column(name = "profit_percent", precision = 5, scale = 2)
     private BigDecimal profitPercent;
+
+    @Column(name = "fee_percent", precision = 5, scale = 4)
+    private BigDecimal feePercent;
 }
